@@ -1,0 +1,11 @@
+name = UMMA Service Order
+description = Custom modifications to the UMMA Service Order content type
+core = 7.x
+package = UMMA
+
+
+; Information added by drupal.org packaging script on 2012-04-25
+version = "7.x-1.0"
+core = "7.x"
+project = "umma_service_order"
+datestamp = "1335291126"

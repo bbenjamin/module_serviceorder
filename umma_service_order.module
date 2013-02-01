@@ -1,0 +1,1195 @@
+<?php
+
+/**
+ * @file
+ * Module specific to the University of Michigan Museum of Art.  This module
+ * provides custom modifications to the "event" content type.
+ */
+ 
+/**
+ * Implementation of hook_form_alter().
+ */ 
+function umma_service_order_form_alter(&$form, &$form_state, $form_id) {
+  //dsm($form_id);  // print form ID to messages
+  switch ($form_id) {
+	case 'service_order_node_form':
+	  //Comments
+      $form['field_so_item']['#access'] = false;
+      $form['field_previous_nid']['#access'] = false; 
+      $form['field_location']['#access'] = false;
+      $form['field_so_value']['#access'] = false;
+      $form['#after_build'][] = 'umma_service_order_after_build';
+	  //dsm($form);  // pretty print array using Krumo to messages
+	  break;
+  }
+}
+
+/**
+ * Implementation of hook_menu().
+ */ 
+//Add the Service Order(s) Tab
+function umma_service_order_menu() {
+  $items=array();
+    $items['node/%service_order_node/service-orders?ei=$_GET["ei"]'] = array(
+    //$items['node/%service_order_node/service-orders'] = array(
+	  'title' => 'Item Order(s)',
+	  'page callback' => 'umma_service_orders',
+	  'page arguments' => array(1),
+	  'access callback' => TRUE,
+	  'type' => MENU_LOCAL_TASK
+    );
+  return $items;
+}
+
+//Limits display of Service Order Tab to just the Event and Program Group content types
+function service_order_node_load($arg) {	
+  $node = node_load($arg);
+  if($node->type == 'event_instance' || $node->type == 'program_group' || 'event') {
+    return $node;
+  } else {
+	return FALSE;
+  }
+}
+  
+//Render the Event Service Order(s) View on the Service Order(s) Tab
+function umma_service_orders($arg){
+  //return views_embed_view('ev_service_order_s', 'default', $arg->nid, 'all');
+    //dsm($arg);
+    
+   // dpm(drupal_get_form('umma_service_order_parts',array($arg)));
+    return drupal_get_form('umma_service_order_parts',array($arg));
+}
+function umma_service_order_parts($form, &$form_state){
+    
+    $form = array();
+    //$args is the node object of the content that the items are being added to
+    $args = $form_state['build_info']['args'][0];
+    dpm($args);
+    
+    //$type identifies if the node is program group, event, or event instance
+    $type = $args[0]->type;
+    
+    //Minitype is a two char abbreviation of the type, which matches the prefix
+    //used in the fields for this content type
+    $minitype = "";
+    if($type == 'program_group'){$minitype = 'pg';}
+    if($type == 'event'){$minitype = 'ev';}
+    if($type == 'event_instance'){$minitype = 'ei';}
+    
+    
+    //Get the item IDS of the service order items available to the kind of content the node is
+    //(program group, event, event instance)
+    $getids = db_query('SELECT entity_id FROM field_data_field_soi_available_to WHERE field_soi_available_to_value = :minitype', array(':minitype' => $minitype));
+    $ids = $getids->fetchAll();
+    dpm($ids);
+    //creating a variable to store an event instance pricing period, if the node is 
+    //an event instance. EI pricing periods are a bit trickier to get, as suggested below
+    $eiprice = "";
+    if($minitype == 'ei'){
+        //If this is an event instance, then we query the database to get the Event level parent items... and the 
+        //program group level items will be addressed in the next if statement.
+        $form['evitems'] = array(
+            '#type' => 'fieldset', 
+            '#title' => 'Event Level Items', 
+            '#collapsible' => TRUE, 
+            '#collapsed' => TRUE,
+            '#weight'   => 202,
+        );
+        $nodeEv = node_load($args[0]->field_ei_event_id['und'][0]['target_id']);
+        //dpm($nodeEv);
+        $eiprice = $nodeEv->field_ev_pricing_period['und'][0]['target_id'];
+        $eItems = db_query('SELECT entity_id FROM field_data_field_so_related_content WHERE field_so_related_content_target_id = :id', array(':id' => $args[0]->field_ei_event_id['und'][0]['target_id']));
+        $ei = $eItems->fetchAll();
+        foreach($ei as $e){
+            $n = node_load($e->entity_id);
+                //dpm($n->title);
+                $form['evitems'][$e->nid] = array(
+                    '#markup'   =>  $e->title . '<br/>',
+                );
+        }
+    }
+    //Grab program group level items for events and event instances, to see what 
+    //their parents are carrying with 'em
+    if($minitype == 'ev' || $minitype == 'ei'){
+        if($minitype == 'ev'){
+            $pgstuff = $args[0]->field_ev_assoc_pg_ids['und'];
+        }else{
+            $nodeEv = node_load($args[0]->field_ei_event_id['und'][0]['target_id']);
+            $pgstuff = $nodeEv->field_ev_assoc_pg_ids['und'];
+        }    
+        //dpm($args[0]);
+        $progs = array();
+        $aItems = array();
+        $form['pgitems'] = array(
+            '#type' => 'fieldset', 
+            '#title' => 'Program Group Level Items', 
+            '#collapsible' => TRUE, 
+            '#collapsed' => TRUE,
+            '#weight'   => 200,
+        );
+        foreach($pgstuff as $pgs){
+            //dpm($pgs);
+            array_push($progs, $pgs['target_id']);
+        }
+        foreach($progs as $p){
+            $aItems[] = db_query('SELECT entity_id FROM field_data_field_so_related_content WHERE field_so_related_content_target_id = :id', array(':id' => $p));
+        }
+        foreach($aItems as $a){
+            $aaii = $a->fetchAll();
+            foreach($aaii as $ai){
+                $n = node_load($ai->entity_id);
+                dpm($n->title);
+                $form['pgitems'][$n->nid] = array(
+                    '#markup'   =>  $n->title . '<br/>',
+                    
+                );
+                
+            }
+        }
+        
+    }
+    
+    //This checks to see what items are already added to this node 
+    $ahItems = db_query('SELECT entity_id FROM field_data_field_so_related_content WHERE field_so_related_content_target_id = :id', array(':id' => $args[0]->nid));
+    $alreadyIds = $ahItems->fetchAll();
+    $al = array();
+    foreach($alreadyIds as $a){
+        $n = node_load($a->entity_id);
+        dpm($n);
+        array_push($al, $n->field_so_item['und'][0]['target_id']);
+    }
+    //dpm($al);
+    //$options is the array that holds the item types that are available to be added to the node
+    //the loop below adds those items, and adds a disclaimer for items that have one or more instances
+    //added to the node already
+    $options = array();
+    //Looping through all the order items that will be made available to add to the node
+    $prices = array();
+    
+    $roms = array();
+    if($minitype == 'ei'){
+                        
+                        foreach($args[0]->field_ei_rooms['und'] as $key => $value){
+                            ///dpm($key);
+                            //dpm('SWAG');
+                            //dpm($value);
+                            $node = node_load($value['target_id']);
+                            $roms[$node->title] = $node->title;
+                        }
+                    }
+    foreach($ids as $id){
+        //Loading the item, then making sure it is also available for the nodes pricing period and cleint type.
+        //If not, it is left off the list
+        $col = db_query('SELECT field_soi_pricing_by_period_value, entity_id FROM field_data_field_soi_pricing_by_period WHERE entity_id = :id', array(':id' => $id->entity_id));
+        $flds = $col->fetchAll();
+    
+        foreach($flds as $fld){
+            $fcol = entity_load('field_collection_item', array($fld->field_soi_pricing_by_period_value));
+            $pperiod = '';
+                if(isset($args[0]->field_pg_pricing_period['und'][0]['target_id'])){
+                    $pperiod = $args[0]->field_pg_pricing_period['und'][0]['target_id'];
+                }elseif(isset($args[0]->field_ev_pricing_period['und'][0]['target_id'])){
+                    $pperiod = $args[0]->field_ev_pricing_period['und'][0]['target_id'];
+                }elseif(!empty($eiprice)){
+                    $pperiod = $eiprice;
+                }else{
+                    dpm("NO PRICING PERIOD FOUND");
+                }
+                
+            if($fcol[key($fcol)]->field_soi_pricing_period['und'][0]['target_id'] == $pperiod ||
+               $fcol[key($fcol)]->field_soi_pricing_period['und'][0]['target_id'] == $pperiod || 
+               $fcol[key($fcol)]->field_soi_pricing_period['und'][0]['target_id'] == $eiprice){
+                
+                
+                $nod = node_load($fld->entity_id);
+                $skipIt = true;
+                // Searches for a client type match. If found, then the "skip" out of the loop is disabled.
+                foreach($nod->field_pg_client_type['und'] as $pg){
+                   // dpm( 'PG ' . $pg['value']);
+                    foreach($args[0]->field_pg_client_type['und'] as $opg){
+                       // dpm( 'OPG ' . $opg['value']);
+                        if($pg['value'] == $opg['value']){
+                            $skipIt = false;
+                        }
+                    }
+                }
+                if($skipIt){continue;}
+                //dpm($fcol);
+                foreach($fcol[key($fcol)] as $key => $val){
+                    if(!is_array($val)){continue;}
+                    
+                    //dpm($key);
+                   // dpm($val);
+                    if(substr($key, 0, 5) == 'field'){
+                        
+                        if(isset($val['und'][0])){
+                            $prices[$fld->entity_id][$key] = $val['und'][0][key($val['und'][0])];
+                        }
+                    }
+                }
+                $chk = (in_array($id->entity_id, $al) ? " (1 or more already added)" : "");
+                $options[$nod->field_so_type['und'][0]['value']][$nod->nid] = $nod->title . $chk;
+            }
+            
+        }
+
+    }
+    //dpm($prices);
+    dpm($options);
+    //With the array of available items, create a series of checkboxes, and sort by
+    //department
+    
+    $form['adding'] = array(
+            '#type' => 'fieldset', 
+            '#title' => 'Add Order Items To This ' . ucwords(str_replace('_', ' ',$type)), 
+            '#collapsible' => TRUE, 
+            '#collapsed' => TRUE,
+             '#weight'   => 10,
+        );
+    
+    
+    foreach($options as $key => $value){
+        
+        $form['adding'][$key] = array(
+                 '#type' => 'checkboxes',
+                '#options' => $value,
+                '#title' => t(':type Items',array(':type'=> $key))); 
+        
+        
+    }
+    /*
+     * 
+     * if($minitype == 'ei'){
+                        
+                        foreach($args[0]->field_ei_rooms['und'] as $key => $value){
+                            dpm($key);
+                            dpm('SWAG');
+                            dpm($value);
+                            $node = node_load($value['target_id']);
+                            $options[$node->title] = $node->title;
+                        }
+                    }
+     * $form[$derp][$a->entity_id][$keyplus] =  array(
+                        '#type'     => 'select_or_other',
+                   '#default_value' => $value['und']['#default_value'],
+                        '#title'    => 'In Room(s)',
+                        '#options'  => $options,
+                        //'#access'   => $false
+                        '#states'   => array(
+                            'visible'   => array(
+                                ':input[name="hooboy"]' => 'Tha Button'  
+                            )
+                        )
+                        ); 
+     */
+    
+    $form['adding']['submit'] = array(
+            '#type' => 'submit',
+        '#submit' => array('umma_service_order_addchecked_submit'),
+            '#value' => 'Add Checked Items To ' . ucwords(str_replace('_', ' ',$type)),  
+        );
+    $form['adding']['submit2'] = array(
+            '#type' => 'submit',
+            '#value' => 'Finalize Addition' , 
+            '#access' => false,
+            
+        );
+    
+    $cnt = 1;
+    $form['boxx'] = array(
+        '#markup' => '<div style="border:2px black solid;padding:6px;background:#F9F9D1;"><h2>Items Currently Ordered For '. ucwords(str_replace('_', ' ',$type)) .'</h2>',
+    );
+    
+    
+    //creating the array that is used to filter out prices for non-relevant client types
+    $visible = "derrrr";
+    //ßarray_push($visible, 'field_soi_umma_cost');
+    foreach($args[0]->field_pg_client_type['und'] as $visiVal){
+        switch ($visiVal['value']) {
+            case 'UMMA':
+                $visible = 'field_soi_umma_rate';
+                break;
+            case 'UMMA Cosponsored':
+                $visible =  'field_soi_umma_cosp_rate';
+                break;
+            case 'UMMA Program Partner':
+                $visible =  'field_soi_pgm_partner_rate';
+                break;
+            case 'Other UM Dept':
+                $visible =  'field_soi_oumd_rate';
+                break;
+            case 'UM Student Group':
+                $visible =  'field_soi_umstud_grp_rate';
+                break;
+            case 'External Non-Profit':
+                $visible =  'field_soi_ext_nprof_rate';
+                break;
+            case 'Sponsorship':
+                $visible =  'field_soi_spons_rate';
+                break;
+            case 'External Individual/Group':
+                $visible =  'field_soi_ext_ind_rate';
+                break;
+            case 'Other':
+                $visible = "DORRRRP!";
+                break;
+
+            default:
+                break;
+        }
+    }
+    
+    //This adds information for the items already added, including form 
+    //components to adjust specific choices regarding this item and the node
+    foreach($alreadyIds as $a){
+        //these two variables used to populate the start and end dates from the 
+        //service order node
+        $startArr = ""; 
+        $endArr = "";
+        
+        //get the added item's node and its related form to be made available for editing
+        $itm = node_load($a->entity_id);
+        $frm = drupal_get_form('service_order_node_form', $itm);
+       // dpm($itm);
+        //dpm($frm);
+       
+        //don't bother with fields that aren't revevant for when this is embedded in a 
+        //Event\Program Group\Event Instance Form
+        unset($frm['field_previous_nid']);
+        unset($frm['field_so_related_content']);
+        unset($frm['field_so_type']);
+        unset($frm['field_pg_client_type']);
+        unset($frm['field_so_item']);
+        unset($frm['field_so_item']);
+        $derp = 'unknown';
+        /*
+        if(isset($itm->field_location['und'][0]['value'])){
+            $derp = $itm->field_location['und'][0]['value'];
+        }
+        if(!isset($form[$derp])){
+            $form[$derp] = array(
+                '#type' => 'fieldset', 
+                '#title' => $derp, 
+                '#collapsible' => TRUE, 
+                '#collapsed' => TRUE,
+        );
+        }*/
+        $form[$a->entity_id] = array(
+            '#type' => 'fieldset', 
+            '#title' => $itm->title, 
+            '#collapsible' => TRUE, 
+            '#collapsed' => TRUE,
+        );
+        
+         $view = views_get_view_result('items_in_an_order', 'page', $a->entity_id);
+        dpm($view);
+        $totalOrderCost = array();
+        foreach($view[0]->field_field_so_added_item as $kk => $vv){
+            $targetId = $vv['raw']['target_id'];
+            $oitem = $vv['rendered']['node'][$targetId];
+            dpm($oitem);
+            $itemName = str_replace(' ', '_',$oitem['field_io_item'][0]['#markup']);
+            dpm($itemName); 
+            $form[$a->entity_id][$targetId . "_" . $itemName] = array(
+                '#markup' => "<h2>$itemName</h2>",
+            );  
+            $form[$a->entity_id][$targetId . "_field_io_quantity" ] = array(
+                '#title' => "Quantity",
+                '#type' => 'textfield',
+                '#size'=> 10,
+                
+            );
+            $iquan = "";
+            if(isset($oitem['field_io_quantity'][0]['#markup']) && !empty($oitem['field_io_quantity'][0]['#markup']) ){
+                $form[$a->entity_id][$targetId . "_field_io_quantity" ]['#value'] = $oitem['field_io_quantity'][0]['#markup'];
+                $iquan = $oitem['field_io_quantity'][0]['#markup'];
+            }
+            $form[$a->entity_id][$targetId . "_field_io_desc" ] = array(
+                '#title' => "Description",
+                '#type' => 'textfield',
+            );
+            
+            if(isset($oitem['field_io_desc'][0]['#markup']) && !empty($oitem['field_io_desc'][0]['#markup']) ){
+                $form[$a->entity_id][$targetId . "_field_io_desc" ]['#value'] = $oitem['field_io_desc'][0]['#markup'];
+                
+            }
+            $orderItemNid = $oitem['field_io_item']['#object']->field_io_item['und'][0]['target_id'];
+            $vu = views_get_view_result('item_prices', 'page', $orderItemNid) ;    
+        dpm($vu);
+            $pperiod = '';
+                if(isset($args[0]->field_pg_pricing_period['und'][0]['target_id'])){
+                    $pperiod = $args[0]->field_pg_pricing_period['und'][0]['target_id'];
+                }elseif(isset($args[0]->field_ev_pricing_period['und'][0]['target_id'])){
+                    $pperiod = $args[0]->field_ev_pricing_period['und'][0]['target_id'];
+                }elseif(!empty($eiprice)){
+                    
+                    $pperiod = $eiprice;
+                }else{
+                    dpm("NO PRICE PERIOD");
+                }
+                    
+            $periodNode = node_load($pperiod);   
+            $priceString = $periodNode->title;
+            dpm('HEY_PRICE '.$periodNode->title);  
+            foreach($vu[0]->field_field_soi_pricing_by_period as $kee => $vaal){
+                dpm($vaal);
+                dpm($visible);
+                dpm($priceString);
+                $ptargetId = $vaal['raw']['value'];
+                if($vaal['rendered']['entity']['field_collection_item'][$ptargetId]['field_soi_pricing_period'][0]['#markup'] != $priceString){
+                    continue;
+                }
+                $priceString = $vaal['rendered']['entity']['field_collection_item'][$ptargetId][$visible][0]['#markup'];
+                dpm($ptargetId);
+                
+                
+                $priceString = str_replace('$', '', $priceString);
+            }
+            dpm("PSPSPS");
+            dpm($priceString);
+            if(!empty($form[$a->entity_id][$targetId . "_field_io_quantity" ]['#value'])){
+                array_push($totalOrderCost, $priceString * $iquan);
+                $form[$a->entity_id][$targetId . "_field_io_quantity" ]['#suffix'] = 
+                '<strong>x ' .$priceString . ' = $' .$priceString * $iquan .'</strong>';
+            }
+            //$target_id is item
+            // ADD QUANTITY
+            //ADD DESCRIPTION
+            
+            //DISPLAY PRICING PERIOD
+            
+        }
+        $total = 0;
+        foreach($totalOrderCost as $t){
+            $total += $t;
+        }
+        $form[$a->entity_id]['total'] = array(
+            '#markup' => "<h2> Total Cost for Order =$". $total . "</h2>",
+        );
+        /*
+         * $vu = views_get_view_result('item_prices', 'page', 'ARGY ONE', 'ARGY TWO') ;    
+    dpm($vu);
+    $priced = $vu[0]->$visible;
+    dpm($priced[0]['rendered']['#markup']);
+         */
+        //This creates markup that displays only the pricing/rates for the item as relevant 
+        //to the client type
+        /*
+        $markup = '';
+        foreach($prices[$itm->field_so_item['und'][0]['target_id']] as $key => $value){
+            if(!in_array($key, $visible)){continue;} 
+            $markup .= $key . ': ' . $value . '<br/>';
+        }
+        $form[$a->entity_id]['prices'] = array(
+          '#markup' =>  $markup,
+        );
+        */
+        //Bring in the relevant node form fields for items already added to ev/ei/pg
+        //Special Logic For the date/time this item is used, and it's using a poormans timezone conversion
+        dpm($frm);
+        foreach($frm as $key => $value){     
+            
+            if(substr($key, 0, 5) == 'field'){
+                $keyplus = $key . $cnt;
+                if(substr($key, -4, 4) == 'date'){
+                        //dpm($value);
+                        //$form[$derp][$a->entity_id][$key] = $value['und'][0];
+                         if($key == 'field_so_start_date'){
+                             if(isset($value['und'][0]['#value']['value'])){
+                                $startArr = date( 'Y-m-d H:i:s' ,strtotime($value['und'][0]['#value']['value'])-18000);
+                             }else{
+                                 $startArr = date( 'Y-m-d H:i:s' ,time());
+                             }   
+                         }
+                         if($key == 'field_so_end_date'){
+                             if(isset($value['und'][0]['#value']['value'])){
+                                $endArr = date( 'Y-m-d H:i:s' ,strtotime($value['und'][0]['#value']['value'])-18000);
+                             }else{
+                                 $endArr = date( 'Y-m-d H:i:s' ,time());
+                             } 
+                         }
+                    
+                        continue;
+                    }
+                
+                if($key == 'field_so_added_item'){
+                    foreach($value['und'] as $kl => $vl){
+                        if(!is_array($vl) || !is_numeric(substr($kl,0,1)) ){continue;}
+                        dpm($kl);
+                        dpm($vl);
+                        $itemNid = $vl['target_id']['#value'];
+                        if(empty($itemNid)){continue;}
+                        $iStart = strpos($itemNid, '(');
+                        $iStop = strpos($itemNid, ')');
+                        $nidCatch = substr($itemNid,$iStart+1,$iStop-$iStart-1);
+                        //dpm($itemNid);
+                        //dpm($nidCatch);
+                        $itemNode = node_load($nidCatch);
+                        //dpm($itemNode);
+                        $iform = drupal_get_form('item_inside_order', $itemNode);
+                        dpm($iform);
+                        foreach($iform as $k => $v){
+                            
+                        }
+                    }
+                    continue;
+                }    
+                /*    
+                if($value['#attributes']['class'][2] == 'field-widget-select-or-other'){   
+                    dpm($args);
+                    $optionsr = array();
+                    $optionsr = $value['und']['#options'];
+                    if($minitype == 'ei'){
+                        
+                        foreach($args[0]->field_ei_rooms['und'] as $key => $value){
+                            //dpm($key);
+                            //dpm('SWAG');
+                            //dpm($value);
+                            $node = node_load($value['target_id']);
+                            $optionsr[$node->title] = $node->title;
+                        }
+                    }
+                    
+                    $form[$a->entity_id][$keyplus] =  array(
+                        '#type'     => 'select_or_other',
+                   '#default_value' => $value['und']['#default_value'],
+                        '#title'    => 'In Room(s)',
+                        '#options'  => $optionsr,
+                        //'#access'   => $false
+                        '#states'   => array(
+                            'visible'   => array(
+                                ':input[name="hooboy"]' => 'Tha Button'  
+                            )
+                        )
+                        ); 
+                    
+                     continue;
+                } 
+                 * */
+                    
+                if(isset($value['und'][0]['value']['#type'])){
+                $form[$a->entity_id][$keyplus] =  array(
+                        '#type' => $value['und'][0]['value']['#type'],
+                    '#default_value' => $value['und'][0]['value']['#default_value'],
+                    '#title' => $value['und'][0]['value']['#title'],
+                        ); 
+                    if($value['und'][0]['value']['#type'] == 'select' || $value['und'][0]['value']['#type'] == 'checkboxes'){
+                        $form[$a->entity_id][$keyplus]['#options'] = $value['und'][0]['value']['#options'];
+                    } 
+                }else{
+                    if(!$value['#access']){continue;}
+                    if(!isset($value['und'])){dpm($value);}
+                    $form[$a->entity_id][$keyplus] =  array(
+                        '#type' => $value['und']['#type'],
+                    '#default_value' => $value['und']['#default_value'],
+                    '#title' => $value['und']['#title'],
+                        ); 
+                    if($value['und']['#type'] == 'select' || $value['und']['#type'] == 'checkboxes'){
+                        $form[$a->entity_id][$keyplus]['#options'] = $value['und']['#options'];
+                    }
+                    
+                }
+                //$form[$derp][$a->entity_id][$keyplus]['#id'] = $form[$derp][$a->entity_id][$keyplus]['#id'] . $cnt;
+                //$form[$derp][$a->entity_id][$keyplus]['und']['#field_name'] = $keyplus;
+                
+            }
+        }
+        // 'j F Y g:ia'
+        //dpm($startArr);
+        $params = array(
+            '#type'     => 'date_popup',
+            '#title'    => 'Start',
+            '#date_format' => 'Y-m-d h:ia',
+            '#entity_type'  => 'node',
+            '#date_year_range' => '0:+2', 
+            '#default_value' => $startArr,
+            '#required'     => false,
+            '#weight' => -2,
+            
+            //'#limit_validation_errors' => array(),
+           // 'und' => array('#value' => $startArr, 'value' => $startArr2),
+            
+        );
+        $form[$a->entity_id]['start_date'.$cnt] = $params;
+        //$form[$derp][$a->entity_id]['start_date']['und'][0]['#value'] = $startArr;
+        //$form[$derp][$a->entity_id]['start_date']['und'][0]['value'] = $startArr2;
+        $params['#title'] = 'End';
+        $params['#weight'] = -1;
+        $params['#default_value'] =  $endArr;
+        $form[$a->entity_id]['end_date'.$cnt] = $params;
+       // foreach($field_so_added_item)
+        $form[$a->entity_id]['remove'.$cnt] = array(
+            '#type' => 'submit',
+            '#value' => 'Remove This Item',
+            '#submit' => array('umma_service_order_remove_submit'),
+            '#weight' => 92,
+            //"#executes_submit_callback" => FALSE,
+            
+        );
+        $form[$a->entity_id]['savechanges'.$cnt] = array(
+            '#type' => 'submit',
+            '#value' => 'Save Changes To Item',
+            '#submit' => array('umma_service_order_savechanges_submit'),
+            '#weight' => 90,
+            
+            //'#name' => 'Save Changes',
+            //"#executes_submit_callback" => FALSE,
+           // "#limit_validation_errors" => array()
+        );
+        $cnt += 1; 
+    }
+     $form['boxx2'] = array(
+        '#markup' => '</div>',
+    );
+        //dpm($form);
+       // dpm($form_state);
+    
+    /*
+     * IF THE 'ADD CHECKED ITEMS' SUBMIT IS TRIGGERED THE FORM CHANGES A BUNCH
+     */
+     if(isset($form_state['triggering_element'])){
+        //dpm($form_state['triggering_element']['#value']); 
+        dpm($form_state); 
+        if(strpos($form_state['triggering_element']['#value'], 'dd Checked Items To') != false ){
+            $form['adding']['submit']['#access'] = false;
+            $form['adding']['submit2']['#access'] = true;
+            //$form['adding']['submit2']['#prefix'] = $form['adding']['submit2']['#weight'];
+            $form['adding']['submit2']['#value'] = "PART 2 of FORM";
+            $form['adding']['submit2']['#weight'] = 50;
+            foreach($form as $key => $value){
+                if(isset($form[$key]['#type'])){
+                    if($form[$key]['#type'] == 'fieldset'){
+                        $form[$key]['#access'] = false; 
+                        //dpm($key);
+                    }
+                }    
+            }
+            
+            $form['boxx']['#access'] = false; 
+            
+            $form['adding']['#access'] = true; //'#collapsed' => TRUE,
+            $form['adding']['#collapsed'] = false;
+            
+            $added_checks = array();
+            
+            //See if there are existing service orders - 
+            //If not -- Automatically create one for the order type. Otherwise populate a select_or_other
+            //with exising SO's and options for others. 
+            
+            
+            //QUERY CHECK FOR SERVICE ORDERS RELATED TO it will be in field_data_field_so_related_content -- field field_so_related_content_target_id
+            //look to match $args[0]->nid
+            $q_orders = db_query('SELECT entity_id FROM field_data_field_so_related_content WHERE field_so_related_content_target_id = :id', array(':id' => $args[0]->nid));
+            $orders = $col->fetchAll();
+            $sorted_orders = array();
+            if(empty($orders)){
+                dpm('EMPTY');
+            }else{
+                dpm('FULL');
+                foreach($orders as $o){
+                    $node = node_load($o->entity_id);
+                    $sorted_orders[$node->field_so_type['und'][0]['value']][] = $node->nid;
+                }
+                $sorted_orders[$node->field_so_type['und'][0]['value']][] = $node->nid;
+            }
+            foreach($options as $key => $value){
+                dpm($key);
+                $form['adding'][$key]['#access'] = false;
+                foreach($form_state['values'][$key] as $k => $v){
+                    if($v !=0 && !is_array($k)){
+                        $added_checks[$k] = $k;
+                    }
+                }
+            }
+            dpm($added_checks);
+            
+            $form['adding']['make_it'] = array(
+                        '#type' => 'hidden', 
+                    );
+            
+            
+            foreach($form_state['checkmarked'] as $key => $value){
+                $node = node_load($value);
+                dpm($node);
+                $form['adding']['make_it']['#value'][] = $value;
+                    
+                $form['adding'][$value] = array(
+                        '#markup' => '<h2>' . $node->title . '</h2>');
+                
+                
+                $form['adding'][$value . '_field_io_quantity'] = array(
+                    '#type' => 'textfield',
+                     '#title' => t("Quantity"),                   
+                      '#description' => t("Each/hours/etc"),
+                      '#size' => 5,
+                      '#maxlength' => 30,); //make this a textfield
+                $form['adding'][$value . '_field_io_desc'] = array(
+                    '#type' => 'textfield',
+                     '#title' => t("Description"),                   
+                      '#description' => t("Additional Information"),
+                      '#cols' => 60,
+                      '#rows' => 3,
+                      '#maxlength' => 120,
+                ); //make this a textfield
+                if(isset($sorted_orders[$node->field_so_type['und'][0]['value']])){
+                    $optns;
+                    foreach($sorted_orders[$node->field_so_type['und'][0]['value']] as $s){
+                        //ADD THE PROPER ORDERS TO $optns
+                    }
+                    
+                    $form['adding'][$value] = array(
+                        '#type'     => 'select_or_other',
+                   
+                        '#title'    => 'Add To Serice Order',
+                        '#options'  => $optns);
+                }else{
+                    
+                     $form['adding'][$value . '_uses_new'] = array(
+                        '#type' => 'hidden', 
+                        '#value' => $node->field_so_type['und'][0]['value'],
+                    );
+                    $form['adding']['new_so_'.substr($node->field_so_type['und'][0]['value'],0,5)] = array(
+                        '#type' => 'hidden', 
+                        '#value' => $node->field_so_type['und'][0]['value'],
+                    );
+                    
+                }
+                
+               
+                
+                /*
+                $form['adding'][$value] = array(
+                        '#type'     => 'select_or_other',
+                   
+                        '#title'    => $node->title . '-O',
+                        '#options'  => $roms);
+                 * 
+                 */
+            }
+             
+           //unset($form_state['triggering_element']['#value']); 
+        }else{
+            $form['adding']['submit']['#access'] = true;
+            $form['adding']['submit2']['#access'] = false;
+            //$form['adding']['submit2']['#prefix'] = $form['adding']['submit2']['#weight'];
+            //$form['adding']['submit2']['#value'] = "PART 2 of FORM";
+           // $form['adding']['submit2']['#weight'] = 50;
+            foreach($form as $key => $value){
+                if(isset($form[$key]['#type'])){
+                    if($form[$key]['#type'] == 'fieldset'){
+                        $form[$key]['#access'] = true; 
+                        //dpm($key);
+                    }
+                }    
+            }
+            
+            $form['boxx']['#access'] = true; 
+            
+            $form['adding']['#access'] = true; //'#collapsed' => TRUE,
+            $form['adding']['#collapsed'] = false;
+        }
+    }
+     
+     
+    return $form;
+    
+}  
+function umma_service_order_presavechanges_submit($form_id, &$form_state){
+    //dpm('DYUHHH');
+    //dpm($form_state);
+    $values = $form_state['values'];
+   
+    $clk = substr($form_state['clicked_button']['#parents'][0],-1,1);    
+   // dpm($clk);
+    $editNode = node_load($form_state['clicked_button']['#array_parents'][0]);
+   // dpm($editNode);
+    $editNode->field_so_pricing_period['und'][0]['target_id'] = $values['field_so_pricing_period'.$clk];
+    //$editNode->field_pg_client_type['und'][0]['value'] = $values['field_pg_client_type'.$clk];
+    $editNode->field_so_manual_adjustment['und'][0]['value'] = $values['field_so_manual_adjustment'.$clk];
+    $editNode->field_so_man_adj_description['und'][0]['value'] = $values['field_so_man_adj_description'.$clk];
+    //Y-m-d H:i:s
+    $editNode->field_so_start_date['und'][0]['value'] = date('Y-m-d H:i:s',strtotime($values['start_date'.$clk]) + 18000);
+    $editNode->field_so_end_date['und'][0]['value'] = date('Y-m-d H:i:s',strtotime($values['end_date'.$clk]) + 18000);
+    // WHOLE BUNCH OF OTHER STUFF HAS TO GO HERE TO TRANSFER NEW DATA IN
+    node_save($editNode);
+    //dpm($editNode);
+}
+function umma_service_order_savechanges_submit($form_id, &$form_state){
+    //dpm('DYUHHH');
+    //dpm($form_state);
+    $values = $form_state['values'];
+   
+    $clk = substr($form_state['clicked_button']['#parents'][0],-1,1);    
+    //dpm($clk);
+    $editNode = node_load($form_state['clicked_button']['#array_parents'][0]);
+    //dpm($editNode);
+    $editNode->field_so_pricing_period['und'][0]['target_id'] = $values['field_so_pricing_period'.$clk];
+    //$editNode->field_pg_client_type['und'][0]['value'] = $values['field_pg_client_type'.$clk];
+    $editNode->field_so_manual_adjustment['und'][0]['value'] = $values['field_so_manual_adjustment'.$clk];
+    $editNode->field_so_man_adj_description['und'][0]['value'] = $values['field_so_man_adj_description'.$clk];
+    //Y-m-d H:i:s
+    $editNode->field_so_start_date['und'][0]['value'] = date('Y-m-d H:i:s',strtotime($values['start_date'.$clk]) + 18000);
+    $editNode->field_so_end_date['und'][0]['value'] = date('Y-m-d H:i:s',strtotime($values['end_date'.$clk]) + 18000);
+    // WHOLE BUNCH OF OTHER STUFF HAS TO GO HERE TO TRANSFER NEW DATA IN
+    node_save($editNode);
+    dpm($editNode);
+}
+function umma_service_order_remove_submit($form_id, &$form_state){
+    //dpm($form_state);
+    node_delete($form_state['clicked_button']['#array_parents'][0]);
+}
+function umma_service_order_addchecked_submit($form_id, &$form_state){
+    if(isset($form_state['checkmarked'])){dpm('NO CHECK');return;}
+    dpm('BWOMP!!!');
+    dpm($form_state);
+    if(!isset($form_state['alreadyArray'])){$form_state['alreadyArray'] = array();}
+    if(strpos($form_state['triggering_element']['#value'], 'dd Checked Items To') != false){
+            dpm('WHAAAAAT');
+            
+            $form['adding']['submit']['#access'] = false;
+            $form['adding']['submit2']['#access'] = true;
+            //$form['adding']['submit2']['#prefix'] = $form['adding']['submit2']['#weight'];
+            
+            $args = $form_state['build_info']['args'][0][0];
+             foreach($form_state['values'] as $key => $value){
+
+                 //if(!is_array($value)){continue;}
+                 dpm($key);
+                 //if(substr($key, strlen($key)-3) != 'pt2'){continue;}
+                 if(ctype_lower(substr($key, 0,1))){continue;}
+                 dpm("HOAHOA");
+                // dpm(substr($key,0,strlen($key)-3));
+                // $itemNode = node_load(substr($key,0,strlen($key)-3)); 
+                 dpm($value);
+                 
+                foreach($value as $k=> $v){ 
+                     if($v == 0){continue;}
+                   
+                     
+                     $itemNode = node_load(substr($v,0)); 
+                     /*
+                     array_push( $form_state['alreadyArray'], $v);
+                     dpm( $form_state['alreadyArray']);
+                     dpm($v);
+                     $newNode = new stdClass();
+                     $newNode->type = 'item_inside_order';
+                     node_object_prepare($newNode);
+                     $newNode->language = 'und';
+                     $newNode->field_io_sched_ent['und'][0]['target_id'] = $args->nid;
+                     $newNode->field_so_type['und'][0]['value'] = $itemNode->field_so_type['und'][0]['value'];
+                     $newNode->field_io_item['und'][0]['target_id'] = $itemNode->nid;
+                     //$newNode->field_location['und'][0]['value'] = $value;
+                     if(isset($args->field_pg_pricing_period)){
+                                $newNode->field_pg_pricing_period = $args->field_pg_pricing_period;
+                                $newNode->field_pg_client_type = $args->field_pg_client_type;
+                            } 
+                    if(isset($args->field_ev_pricing_period)){
+                        $newNode->field_pg_pricing_period = $args->field_ev_pricing_period;
+                        $newNode->field_pg_client_type = $args->field_ev_client_type;
+                    } 
+                    if(isset($args->field_ei_pricing_period)){
+                        $node = node_load($args->field_ei_event_id['und'][0]['target_id']);
+                        $newNode->field_pg_pricing_period = $node->field_ev_pricing_period;
+                        $newNode->field_pg_client_type = $node->field_pg_client_type;
+                    }  
+                    node_save($newNode);   
+                      * */
+                     $form_state['checkmarked'][] = $v; 
+                    //$form_state['checkmarked'][] = $itemNode->nid;
+                    //$form_state['checkmarked'][] = $newNode->nid;
+                    //dpm('|||--' .$newNode->title);
+                }         
+                        
+             }
+            /*
+            foreach($form as $key => $value){
+                if($form[$key]['#type'] == 'fieldset'){
+                    $form[$key]['#access'] = false; 
+                }
+            }
+             * */
+            //dpm($form); 
+            $form_state['adding']['#access'] = true;
+             
+           $form_state['rebuild'] = true;
+        }
+    //node_delete($form_state['clicked_button']['#array_parents'][0]);
+}
+function umma_service_order_date_popup_pre_validate_alter(&$element, &$form_state, &$input){
+   // dpm($element);
+   // dpm($input);
+   // $element['#needs_validation'] = false;
+   // unset($element['#element_validate']);
+   // dpm($element);
+}
+function umma_service_order_parts_validate($form, &$form_state){
+    // 'm/d/Y - H:i'
+    //$form_state['input']['start_date']['date'] = date('m/d/Y',strtotime($form_state['input']['start_date']['date']));
+    //$form_state['input']['start_date']['time'] = date('H:i',strtotime($form_state['input']['start_date']['time']));
+    //$form_state['input']['end_date']['date']   = date('m/d/Y',strtotime($form_state['input']['end_date']['date']));
+    //$form_state['input']['end_date']['time']   = date('H:i',strtotime($form_state['input']['end_date']['time']));
+    foreach($form_state['input'] as $k => $i){
+        //dpm($k);
+    }
+   // dpm($form_state);
+    //dpm($form);
+}
+
+function umma_service_order_parts_submit($form_id, &$form_state){
+    
+     dpm($form_state);
+     $args = $form_state['build_info']['args'][0][0];
+     $values = $form_state['values'];
+     $newSo = array();
+     foreach($values as $key => $value){
+         
+         
+         if(substr($key, 0,7)=="new_so_"){
+             dpm("NEW SERVICE ORDER");
+             $sonode = new stdClass();
+             $sonode->type = 'service_order';
+             node_object_prepare($sonode);
+             $sonode->language = 'und';
+             $sonode->field_so_type['und'][0]['value'] = $value;
+             $sonode->field_so_related_content['und'][0]['target_id'] = $args->nid;
+             //$node->title
+             if(isset($args->field_pg_pricing_period)){
+                    $sonode->field_so_pricing_period = $args->field_pg_pricing_period;
+                    $sonode->field_pg_client_type = $args->field_pg_client_type;
+                } 
+                if(isset($args->field_ev_pricing_period)){
+                    $sonode->field_so_pricing_period = $args->field_ev_pricing_period;
+                    $sonode->field_pg_client_type = $args->field_ev_client_type;
+                } 
+                if(isset($args->field_ei_status)){
+                        $node = node_load($args->field_ei_event_id['und'][0]['target_id']);
+                        dpm($node);
+                        dpm($sonode);
+                        $sonode->field_so_pricing_period['und'][0]['target_id'] = $node->field_ev_pricing_period['und'][0]['target_id'];
+                        $sonode->field_pg_client_type = $node->field_pg_client_type;
+                    } 
+            node_save($sonode); 
+             $newSo[$value][] = $sonode->nid;
+         }
+         
+     }
+     dpm($newSo);
+     foreach($values['make_it'] as $key => $value){
+         $itemNode = node_load($value);
+         
+         $newNode = new stdClass();
+         $newNode->type = 'item_inside_order';
+         node_object_prepare($newNode);
+         $newNode->language = 'und';
+         $newNode->field_io_sched_ent['und'][0]['target_id'] = $args->nid;
+         $newNode->field_so_type = $itemNode->field_so_type;
+         $newNode->field_io_item['und'][0]['target_id'] = $itemNode->nid;
+         //$newNode->field_location['und'][0]['value'] = $value;
+         if(isset($args->field_pg_pricing_period)){
+                    $newNode->field_so_pricing_period = $args->field_pg_pricing_period;
+                    $newNode->field_pg_client_type = $args->field_pg_client_type;
+                } 
+                if(isset($args->field_ev_pricing_period)){
+                    $newNode->field_so_pricing_period = $args->field_ev_pricing_period;
+                    $newNode->field_pg_client_type = $args->field_ev_client_type;
+                } 
+                if(isset($args->field_ei_status)){
+                        $node = node_load($args->field_ei_event_id['und'][0]['target_id']);
+                        $newNode->field_pg_pricing_period = $node->field_ev_pricing_period;
+                        $newNode->field_pg_client_type = $node->field_pg_client_type;
+                    } 
+         $newNode->field_io_desc['und'][0]['value'] = $values[$value.'_field_io_desc'];  
+         $newNode->field_io_quantity['und'][0]['value'] = $values[$value.'_field_io_quantity'];  
+         node_save($newNode);   
+         $soNode = node_load($newSo[$newNode->field_so_type['und'][0]['value']]);
+         $soNode->field_so_added_item['und'][]['target_id'] = $newNode->nid;
+         node_save($soNode);
+     }
+         
+     
+     
+    /*
+     $args = $form_state['build_info']['args'][0][0];
+     foreach($form_state['values'] as $key => $value){
+         
+         //if(!is_array($value)){continue;}
+        // dpm($key);
+         if(substr($key, strlen($key)-3) != 'pt2'){continue;}
+         //dpm("HOAHOA");
+        // dpm(substr($key,0,strlen($key)-3));
+         $itemNode = node_load(substr($key,0,strlen($key)-3)); 
+         $newNode = new stdClass();
+         $newNode->type = 'item_inside_order';
+         node_object_prepare($newNode);
+         $newNode->language = 'und';
+         $newNode->field_io_sched_ent['und'][0]['target_id'] = $args->nid;
+         $newNode->field_so_type['und'][0]['value'] = $itemNode->field_so_type['und'][0]['value'];
+         $newNode->field_io_item['und'][0]['target_id'] = $itemNode->nid;
+         //$newNode->field_location['und'][0]['value'] = $value;
+         if(isset($args->field_pg_pricing_period)){
+                    $newNode->field_so_pricing_period = $args->field_pg_pricing_period;
+                    $newNode->field_pg_client_type = $args->field_pg_client_type;
+                } 
+                if(isset($args->field_ev_pricing_period)){
+                    $newNode->field_so_pricing_period = $args->field_ev_pricing_period;
+                    $newNode->field_pg_client_type = $args->field_ev_client_type;
+                } 
+                if(isset($args->field_ei_pricing_period)){
+                    $newNode->field_so_pricing_period = $args->field_ei_pricing_period;
+                    $newNode->field_pg_client_type = $args->field_ei_client_type;
+                } 
+         node_save($newNode);          
+     }
+   
+     */
+     /*
+         foreach($value as $v){
+             if($v != null){
+                $itemNode = node_load($v); 
+                if($itemNode->type != 'service_order_item'){continue;}
+                $newNode = new stdClass();
+                $newNode->type = 'service_order';
+                node_object_prepare($newNode);
+                $newNode->language = 'und';
+                $newNode->field_so_related_content['und'][0]['target_id'] = $args->nid;
+                $newNode->field_so_type['und'][0]['value'] = $itemNode->field_so_type['und'][0]['value'];
+                $newNode->field_so_item['und'][0]['target_id'] = $itemNode->nid;
+                
+                if(isset($args->field_pg_pricing_period)){
+                    $newNode->field_so_pricing_period = $args->field_pg_pricing_period;
+                    $newNode->field_pg_client_type = $args->field_pg_client_type;
+                } 
+                if(isset($args->field_ev_pricing_period)){
+                    $newNode->field_so_pricing_period = $args->field_ev_pricing_period;
+                    $newNode->field_pg_client_type = $args->field_ev_client_type;
+                } 
+                if(isset($args->field_ei_pricing_period)){
+                    $newNode->field_so_pricing_period = $args->field_ei_pricing_period;
+                    $newNode->field_pg_client_type = $args->field_ei_client_type;
+                } 
+                node_save($newNode);
+                  
+             }
+         }
+          * */
+}
+/*
+ * if($form_id == 'program_group_node_form') { 
+        $form['field_pg_internal_start_date']['#access'] = false;
+        $form['field_pg_internal_end_date']['#access'] = false;
+        // Add an after_build function to process when everything's complete.
+      //dsm($form_id);
+       // dsm($form);
+ *  // Add an after_build function to process when everything's complete.
+      //dsm($form_id);
+        $form['#after_build'][] = 'umma_program_group_after_build';
+        $item_options = array();
+         $opts = db_query('SELECT nid, title FROM {node} WHERE type = :type', array(':type' => 'service_order_item'));
+         $data = $opts->fetchAll();
+         dpm($data);
+         foreach($data as $d){
+               $item_options[$d->nid] = $d->title;
+           }
+           //dpm($item_options);
+         $form['field_itemlist'] = array(
+             '#type' => 'checkboxes',
+            '#options' => $item_options,
+            '#title' => t('Select Items')); 
+         
+          $form['#group_children']['field_itemlist'] = 'group_pg_order_items';
+       // $form['field_add_remove_items']['und']['#options'] = $item_options;
+        //$form_state['field']['field_add_remove_items']['und']['field']['settings']['allowed_values'] = $item_options;
+        dpm($form);
+        dpm($form_state);
+    }
+}    
+ */
+
+
+/**
+ * Modify CCK form elements on the Service Order node form.
+ */
+function umma_service_order_after_build($form, &$form_state) {
+  //dsm($form['nid']['#value']);
+  //return $form;
+  
+  if($form['nid']['#value'] == '') {
+	//dsm('This is a new Service Order.');
+	//dsm($form);  // pretty print array using Krumo to messages
+  
+    $parentNode = node_load($_GET['field_so_related_content']);
+	//dsm($parentNode);  // pretty print array using Krumo to messages
+	  
+    if($parentNode->type == 'event_instance') {
+	  //dsm('This Service Order is attached to an Event Instance');
+	  
+	  $parentNode = node_load($parentNode->field_ei_event_id['und'][0]['target_id']);
+	  
+	  //dsm($parentNode);
+	  
+	  //Define time zones
+	  $UTC = new DateTimeZone("UTC");
+	  $DetroitTZ = new DateTimeZone("America/Detroit");
+	  
+	  $internalStartDate = new DateTime( $parentNode->field_ev_int_start_date['und'][0]['value'], $UTC );
+	  $internalStartDate->setTimezone( $DetroitTZ );
+	  $internalEndDate = new DateTime( $parentNode->field_ev_int_end_date['und'][0]['value'], $UTC );
+	  $internalEndDate->setTimezone( $DetroitTZ );
+	  
+	  //Calucate the Datetime field Values
+      $form['field_so_start_date']['und'][0]['#value']['value'] 		= $parentNode->field_ev_int_start_date['und'][0];
+      $form['field_so_start_date']['und'][0]['#value']['value2'] 		= $parentNode->field_ev_int_start_date['und'][0];
+	  $form['field_so_start_date']['und'][0]['value']['#value']['date'] = $internalStartDate->format("Y/m/d");
+      $form['field_so_start_date']['und'][0]['value']['#value']['time'] = $internalStartDate->format("h:ia");
+      $form['field_so_start_date']['und'][0]['value']['date']['#value'] = $internalStartDate->format("Y/m/d");
+      $form['field_so_start_date']['und'][0]['value']['time']['#value'] = $internalStartDate->format("h:ia");
+      $form['field_so_end_date']['und'][0]['#value']['value'] 			= $parentNode->field_ev_int_end_date['und'][0];
+      $form['field_so_end_date']['und'][0]['#value']['value2'] 			= $parentNode->field_ev_int_end_date['und'][0];
+	  $form['field_so_end_date']['und'][0]['value']['#value']['date'] 	= $internalEndDate->format("Y/m/d");
+      $form['field_so_end_date']['und'][0]['value']['#value']['time'] 	= $internalEndDate->format("h:ia");
+      $form['field_so_end_date']['und'][0]['value']['date']['#value'] 	= $internalEndDate->format("Y/m/d");
+      $form['field_so_end_date']['und'][0]['value']['time']['#value'] 	= $internalEndDate->format("h:ia");
+	  
+      //Assign Service Order Client Type to selected Client Type value of Associated Event of Event Instance parent node
+	  $form['field_pg_client_type']['und']['#value'][0] 	= $parentNode->field_pg_client_type['und'][0]['value'];
+	  $form['field_so_pricing_period']['und']['#value'][0] 	= $parentNode->field_ev_pricing_period['und'][0]['target_id'];
+	  
+	} elseif($parentNode->type == 'program_group') {
+	  //dsm('This Service Order is attached to a Program Group');
+	  
+	  //dsm($parentNode);
+	  
+	  //Define time zones
+	  $UTC = new DateTimeZone("UTC");
+	  $DetroitTZ = new DateTimeZone("America/Detroit");
+	  
+	  $internalStartDate = new DateTime( $parentNode->field_pg_internal_start_date['und'][0]['value'], $UTC );
+	  $internalStartDate->setTimezone( $DetroitTZ );
+	  $internalEndDate = new DateTime( $parentNode->field_pg_internal_end_date['und'][0]['value'], $UTC );
+	  $internalEndDate->setTimezone( $DetroitTZ );
+	  
+	  //Calucate the Datetime field Values
+      $form['field_so_start_date']['und'][0]['#value']['value'] 		= $parentNode->field_pg_internal_start_date['und'][0];
+      $form['field_so_start_date']['und'][0]['#value']['value2'] 		= $parentNode->field_pg_internal_start_date['und'][0];
+	  $form['field_so_start_date']['und'][0]['value']['#value']['date'] = $internalStartDate->format("Y/m/d");
+      $form['field_so_start_date']['und'][0]['value']['#value']['time'] = $internalStartDate->format("h:ia");
+      $form['field_so_start_date']['und'][0]['value']['date']['#value'] = $internalStartDate->format("Y/m/d");
+      $form['field_so_start_date']['und'][0]['value']['time']['#value'] = $internalStartDate->format("h:ia");
+      $form['field_so_end_date']['und'][0]['#value']['value'] 			= $parentNode->field_pg_internal_end_date['und'][0];
+      $form['field_so_end_date']['und'][0]['#value']['value2'] 			= $parentNode->field_pg_internal_end_date['und'][0];
+	  $form['field_so_end_date']['und'][0]['value']['#value']['date'] 	= $internalEndDate->format("Y/m/d");
+      $form['field_so_end_date']['und'][0]['value']['#value']['time'] 	= $internalEndDate->format("h:ia");
+      $form['field_so_end_date']['und'][0]['value']['date']['#value'] 	= $internalEndDate->format("Y/m/d");
+      $form['field_so_end_date']['und'][0]['value']['time']['#value'] 	= $internalEndDate->format("h:ia");
+	  
+      //Assign Service Order Client Type to selected Client Type value of Associated Event of Event Instance parent node
+	  $form['field_pg_client_type']['und']['#value'][0] 	= $parentNode->field_pg_client_type['und'][0]['value'];
+	  $form['field_so_pricing_period']['und']['#value'][0] 	= $parentNode->field_pg_pricing_period['und'][0]['target_id'];
+	  
+	}
+	
+	//dsm($form);  // pretty print array using Krumo to messages
+  }
+
+  return $form;
+}
