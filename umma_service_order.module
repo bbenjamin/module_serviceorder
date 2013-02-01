@@ -10,18 +10,11 @@
  * Implementation of hook_form_alter().
  */ 
 function umma_service_order_form_alter(&$form, &$form_state, $form_id) {
-  //dsm($form_id);  // print form ID to messages
-  switch ($form_id) {
-	case 'service_order_node_form':
-	  //Comments
       $form['field_so_item']['#access'] = false;
       $form['field_previous_nid']['#access'] = false; 
       $form['field_location']['#access'] = false;
       $form['field_so_value']['#access'] = false;
-      $form['#after_build'][] = 'umma_service_order_after_build';
-	  //dsm($form);  // pretty print array using Krumo to messages
-	  break;
-  }
+      $form['#after_build'][] = 'umma_service_order_after_build';	    
 }
 
 /**
@@ -33,7 +26,7 @@ function umma_service_order_menu() {
     $items['node/%service_order_node/service-orders?ei=$_GET["ei"]'] = array(
     //$items['node/%service_order_node/service-orders'] = array(
 	  'title' => 'Item Order(s)',
-	  'page callback' => 'umma_service_orders',
+	  'page callback' => '_umma_service_orders',
 	  'page arguments' => array(1),
 	  'access callback' => TRUE,
 	  'type' => MENU_LOCAL_TASK
@@ -50,15 +43,23 @@ function service_order_node_load($arg) {
 	return FALSE;
   }
 }
+ /** 
+  * Private Function--Render the Event Service Order(s) View on the Service Order(s) Tab
+  *
+  * @param type node object
+  * @return Drupal form */
   
-//Render the Event Service Order(s) View on the Service Order(s) Tab
-function umma_service_orders($arg){
-  //return views_embed_view('ev_service_order_s', 'default', $arg->nid, 'all');
-    //dsm($arg);
-    
-   // dpm(drupal_get_form('umma_service_order_parts',array($arg)));
+function _umma_service_orders($arg){
+  
     return drupal_get_form('umma_service_order_parts',array($arg));
 }
+
+/**
+ *
+ * form API function
+ * @return form
+ */
+
 function umma_service_order_parts($form, &$form_state){
     
     $form = array();
@@ -96,13 +97,11 @@ function umma_service_order_parts($form, &$form_state){
             '#weight'   => 202,
         );
         $nodeEv = node_load($args[0]->field_ei_event_id['und'][0]['target_id']);
-        //dpm($nodeEv);
         $eiprice = $nodeEv->field_ev_pricing_period['und'][0]['target_id'];
         $eItems = db_query('SELECT entity_id FROM field_data_field_so_related_content WHERE field_so_related_content_target_id = :id', array(':id' => $args[0]->field_ei_event_id['und'][0]['target_id']));
         $ei = $eItems->fetchAll();
         foreach($ei as $e){
             $n = node_load($e->entity_id);
-                //dpm($n->title);
                 $form['evitems'][$e->nid] = array(
                     '#markup'   =>  $e->title . '<br/>',
                 );
@@ -170,9 +169,6 @@ function umma_service_order_parts($form, &$form_state){
     if($minitype == 'ei'){
                         
                         foreach($args[0]->field_ei_rooms['und'] as $key => $value){
-                            ///dpm($key);
-                            //dpm('SWAG');
-                            //dpm($value);
                             $node = node_load($value['target_id']);
                             $roms[$node->title] = $node->title;
                         }
@@ -205,9 +201,7 @@ function umma_service_order_parts($form, &$form_state){
                 $skipIt = true;
                 // Searches for a client type match. If found, then the "skip" out of the loop is disabled.
                 foreach($nod->field_pg_client_type['und'] as $pg){
-                   // dpm( 'PG ' . $pg['value']);
                     foreach($args[0]->field_pg_client_type['und'] as $opg){
-                       // dpm( 'OPG ' . $opg['value']);
                         if($pg['value'] == $opg['value']){
                             $skipIt = false;
                         }
@@ -217,11 +211,7 @@ function umma_service_order_parts($form, &$form_state){
                 //dpm($fcol);
                 foreach($fcol[key($fcol)] as $key => $val){
                     if(!is_array($val)){continue;}
-                    
-                    //dpm($key);
-                   // dpm($val);
-                    if(substr($key, 0, 5) == 'field'){
-                        
+                    if(substr($key, 0, 5) == 'field'){                       
                         if(isset($val['und'][0])){
                             $prices[$fld->entity_id][$key] = $val['und'][0][key($val['und'][0])];
                         }
@@ -234,7 +224,7 @@ function umma_service_order_parts($form, &$form_state){
         }
 
     }
-    //dpm($prices);
+
     dpm($options);
     //With the array of available items, create a series of checkboxes, and sort by
     //department
@@ -257,31 +247,7 @@ function umma_service_order_parts($form, &$form_state){
         
         
     }
-    /*
-     * 
-     * if($minitype == 'ei'){
-                        
-                        foreach($args[0]->field_ei_rooms['und'] as $key => $value){
-                            dpm($key);
-                            dpm('SWAG');
-                            dpm($value);
-                            $node = node_load($value['target_id']);
-                            $options[$node->title] = $node->title;
-                        }
-                    }
-     * $form[$derp][$a->entity_id][$keyplus] =  array(
-                        '#type'     => 'select_or_other',
-                   '#default_value' => $value['und']['#default_value'],
-                        '#title'    => 'In Room(s)',
-                        '#options'  => $options,
-                        //'#access'   => $false
-                        '#states'   => array(
-                            'visible'   => array(
-                                ':input[name="hooboy"]' => 'Tha Button'  
-                            )
-                        )
-                        ); 
-     */
+    
     
     $form['adding']['submit'] = array(
             '#type' => 'submit',
@@ -301,9 +267,9 @@ function umma_service_order_parts($form, &$form_state){
     );
     
     
-    //creating the array that is used to filter out prices for non-relevant client types
+
     $visible = "derrrr";
-    //ßarray_push($visible, 'field_soi_umma_cost');
+ 
     foreach($args[0]->field_pg_client_type['und'] as $visiVal){
         switch ($visiVal['value']) {
             case 'UMMA':
@@ -350,8 +316,6 @@ function umma_service_order_parts($form, &$form_state){
         //get the added item's node and its related form to be made available for editing
         $itm = node_load($a->entity_id);
         $frm = drupal_get_form('service_order_node_form', $itm);
-       // dpm($itm);
-        //dpm($frm);
        
         //don't bother with fields that aren't revevant for when this is embedded in a 
         //Event\Program Group\Event Instance Form
@@ -361,19 +325,7 @@ function umma_service_order_parts($form, &$form_state){
         unset($frm['field_pg_client_type']);
         unset($frm['field_so_item']);
         unset($frm['field_so_item']);
-        $derp = 'unknown';
-        /*
-        if(isset($itm->field_location['und'][0]['value'])){
-            $derp = $itm->field_location['und'][0]['value'];
-        }
-        if(!isset($form[$derp])){
-            $form[$derp] = array(
-                '#type' => 'fieldset', 
-                '#title' => $derp, 
-                '#collapsible' => TRUE, 
-                '#collapsed' => TRUE,
-        );
-        }*/
+
         $form[$a->entity_id] = array(
             '#type' => 'fieldset', 
             '#title' => $itm->title, 
@@ -429,8 +381,7 @@ function umma_service_order_parts($form, &$form_state){
                 }
                     
             $periodNode = node_load($pperiod);   
-            $priceString = $periodNode->title;
-            dpm('HEY_PRICE '.$periodNode->title);  
+            $priceString = $periodNode->title;  
             foreach($vu[0]->field_field_soi_pricing_by_period as $kee => $vaal){
                 dpm($vaal);
                 dpm($visible);
@@ -452,11 +403,6 @@ function umma_service_order_parts($form, &$form_state){
                 $form[$a->entity_id][$targetId . "_field_io_quantity" ]['#suffix'] = 
                 '<strong>x ' .$priceString . ' = $' .$priceString * $iquan .'</strong>';
             }
-            //$target_id is item
-            // ADD QUANTITY
-            //ADD DESCRIPTION
-            
-            //DISPLAY PRICING PERIOD
             
         }
         $total = 0;
@@ -466,24 +412,7 @@ function umma_service_order_parts($form, &$form_state){
         $form[$a->entity_id]['total'] = array(
             '#markup' => "<h2> Total Cost for Order =$". $total . "</h2>",
         );
-        /*
-         * $vu = views_get_view_result('item_prices', 'page', 'ARGY ONE', 'ARGY TWO') ;    
-    dpm($vu);
-    $priced = $vu[0]->$visible;
-    dpm($priced[0]['rendered']['#markup']);
-         */
-        //This creates markup that displays only the pricing/rates for the item as relevant 
-        //to the client type
-        /*
-        $markup = '';
-        foreach($prices[$itm->field_so_item['und'][0]['target_id']] as $key => $value){
-            if(!in_array($key, $visible)){continue;} 
-            $markup .= $key . ': ' . $value . '<br/>';
-        }
-        $form[$a->entity_id]['prices'] = array(
-          '#markup' =>  $markup,
-        );
-        */
+      
         //Bring in the relevant node form fields for items already added to ev/ei/pg
         //Special Logic For the date/time this item is used, and it's using a poormans timezone conversion
         dpm($frm);
@@ -491,9 +420,7 @@ function umma_service_order_parts($form, &$form_state){
             
             if(substr($key, 0, 5) == 'field'){
                 $keyplus = $key . $cnt;
-                if(substr($key, -4, 4) == 'date'){
-                        //dpm($value);
-                        //$form[$derp][$a->entity_id][$key] = $value['und'][0];
+                if(substr($key, -4, 4) == 'date'){                    
                          if($key == 'field_so_start_date'){
                              if(isset($value['und'][0]['#value']['value'])){
                                 $startArr = date( 'Y-m-d H:i:s' ,strtotime($value['und'][0]['#value']['value'])-18000);
@@ -522,10 +449,7 @@ function umma_service_order_parts($form, &$form_state){
                         $iStart = strpos($itemNid, '(');
                         $iStop = strpos($itemNid, ')');
                         $nidCatch = substr($itemNid,$iStart+1,$iStop-$iStart-1);
-                        //dpm($itemNid);
-                        //dpm($nidCatch);
                         $itemNode = node_load($nidCatch);
-                        //dpm($itemNode);
                         $iform = drupal_get_form('item_inside_order', $itemNode);
                         dpm($iform);
                         foreach($iform as $k => $v){
@@ -534,38 +458,7 @@ function umma_service_order_parts($form, &$form_state){
                     }
                     continue;
                 }    
-                /*    
-                if($value['#attributes']['class'][2] == 'field-widget-select-or-other'){   
-                    dpm($args);
-                    $optionsr = array();
-                    $optionsr = $value['und']['#options'];
-                    if($minitype == 'ei'){
-                        
-                        foreach($args[0]->field_ei_rooms['und'] as $key => $value){
-                            //dpm($key);
-                            //dpm('SWAG');
-                            //dpm($value);
-                            $node = node_load($value['target_id']);
-                            $optionsr[$node->title] = $node->title;
-                        }
-                    }
-                    
-                    $form[$a->entity_id][$keyplus] =  array(
-                        '#type'     => 'select_or_other',
-                   '#default_value' => $value['und']['#default_value'],
-                        '#title'    => 'In Room(s)',
-                        '#options'  => $optionsr,
-                        //'#access'   => $false
-                        '#states'   => array(
-                            'visible'   => array(
-                                ':input[name="hooboy"]' => 'Tha Button'  
-                            )
-                        )
-                        ); 
-                    
-                     continue;
-                } 
-                 * */
+             
                     
                 if(isset($value['und'][0]['value']['#type'])){
                 $form[$a->entity_id][$keyplus] =  array(
@@ -589,13 +482,11 @@ function umma_service_order_parts($form, &$form_state){
                     }
                     
                 }
-                //$form[$derp][$a->entity_id][$keyplus]['#id'] = $form[$derp][$a->entity_id][$keyplus]['#id'] . $cnt;
-                //$form[$derp][$a->entity_id][$keyplus]['und']['#field_name'] = $keyplus;
+   
                 
             }
         }
-        // 'j F Y g:ia'
-        //dpm($startArr);
+ 
         $params = array(
             '#type'     => 'date_popup',
             '#title'    => 'Start',
@@ -606,43 +497,31 @@ function umma_service_order_parts($form, &$form_state){
             '#required'     => false,
             '#weight' => -2,
             
-            //'#limit_validation_errors' => array(),
-           // 'und' => array('#value' => $startArr, 'value' => $startArr2),
-            
         );
         $form[$a->entity_id]['start_date'.$cnt] = $params;
-        //$form[$derp][$a->entity_id]['start_date']['und'][0]['#value'] = $startArr;
-        //$form[$derp][$a->entity_id]['start_date']['und'][0]['value'] = $startArr2;
+
         $params['#title'] = 'End';
         $params['#weight'] = -1;
         $params['#default_value'] =  $endArr;
         $form[$a->entity_id]['end_date'.$cnt] = $params;
-       // foreach($field_so_added_item)
         $form[$a->entity_id]['remove'.$cnt] = array(
             '#type' => 'submit',
             '#value' => 'Remove This Item',
             '#submit' => array('umma_service_order_remove_submit'),
-            '#weight' => 92,
-            //"#executes_submit_callback" => FALSE,
-            
+            '#weight' => 92,                       
         );
         $form[$a->entity_id]['savechanges'.$cnt] = array(
             '#type' => 'submit',
             '#value' => 'Save Changes To Item',
             '#submit' => array('umma_service_order_savechanges_submit'),
             '#weight' => 90,
-            
-            //'#name' => 'Save Changes',
-            //"#executes_submit_callback" => FALSE,
-           // "#limit_validation_errors" => array()
         );
         $cnt += 1; 
     }
      $form['boxx2'] = array(
         '#markup' => '</div>',
     );
-        //dpm($form);
-       // dpm($form_state);
+
     
     /*
      * IF THE 'ADD CHECKED ITEMS' SUBMIT IS TRIGGERED THE FORM CHANGES A BUNCH
@@ -653,14 +532,12 @@ function umma_service_order_parts($form, &$form_state){
         if(strpos($form_state['triggering_element']['#value'], 'dd Checked Items To') != false ){
             $form['adding']['submit']['#access'] = false;
             $form['adding']['submit2']['#access'] = true;
-            //$form['adding']['submit2']['#prefix'] = $form['adding']['submit2']['#weight'];
             $form['adding']['submit2']['#value'] = "PART 2 of FORM";
             $form['adding']['submit2']['#weight'] = 50;
             foreach($form as $key => $value){
                 if(isset($form[$key]['#type'])){
                     if($form[$key]['#type'] == 'fieldset'){
                         $form[$key]['#access'] = false; 
-                        //dpm($key);
                     }
                 }    
             }
@@ -754,31 +631,14 @@ function umma_service_order_parts($form, &$form_state){
                     );
                     
                 }
-                
-               
-                
-                /*
-                $form['adding'][$value] = array(
-                        '#type'     => 'select_or_other',
-                   
-                        '#title'    => $node->title . '-O',
-                        '#options'  => $roms);
-                 * 
-                 */
-            }
-             
-           //unset($form_state['triggering_element']['#value']); 
+            }             
         }else{
             $form['adding']['submit']['#access'] = true;
             $form['adding']['submit2']['#access'] = false;
-            //$form['adding']['submit2']['#prefix'] = $form['adding']['submit2']['#weight'];
-            //$form['adding']['submit2']['#value'] = "PART 2 of FORM";
-           // $form['adding']['submit2']['#weight'] = 50;
             foreach($form as $key => $value){
                 if(isset($form[$key]['#type'])){
                     if($form[$key]['#type'] == 'fieldset'){
                         $form[$key]['#access'] = true; 
-                        //dpm($key);
                     }
                 }    
             }
@@ -795,47 +655,32 @@ function umma_service_order_parts($form, &$form_state){
     
 }  
 function umma_service_order_presavechanges_submit($form_id, &$form_state){
-    //dpm('DYUHHH');
-    //dpm($form_state);
+
     $values = $form_state['values'];
    
     $clk = substr($form_state['clicked_button']['#parents'][0],-1,1);    
-   // dpm($clk);
     $editNode = node_load($form_state['clicked_button']['#array_parents'][0]);
-   // dpm($editNode);
     $editNode->field_so_pricing_period['und'][0]['target_id'] = $values['field_so_pricing_period'.$clk];
-    //$editNode->field_pg_client_type['und'][0]['value'] = $values['field_pg_client_type'.$clk];
     $editNode->field_so_manual_adjustment['und'][0]['value'] = $values['field_so_manual_adjustment'.$clk];
     $editNode->field_so_man_adj_description['und'][0]['value'] = $values['field_so_man_adj_description'.$clk];
-    //Y-m-d H:i:s
     $editNode->field_so_start_date['und'][0]['value'] = date('Y-m-d H:i:s',strtotime($values['start_date'.$clk]) + 18000);
     $editNode->field_so_end_date['und'][0]['value'] = date('Y-m-d H:i:s',strtotime($values['end_date'.$clk]) + 18000);
-    // WHOLE BUNCH OF OTHER STUFF HAS TO GO HERE TO TRANSFER NEW DATA IN
     node_save($editNode);
-    //dpm($editNode);
 }
 function umma_service_order_savechanges_submit($form_id, &$form_state){
-    //dpm('DYUHHH');
-    //dpm($form_state);
     $values = $form_state['values'];
    
     $clk = substr($form_state['clicked_button']['#parents'][0],-1,1);    
-    //dpm($clk);
     $editNode = node_load($form_state['clicked_button']['#array_parents'][0]);
-    //dpm($editNode);
     $editNode->field_so_pricing_period['und'][0]['target_id'] = $values['field_so_pricing_period'.$clk];
-    //$editNode->field_pg_client_type['und'][0]['value'] = $values['field_pg_client_type'.$clk];
     $editNode->field_so_manual_adjustment['und'][0]['value'] = $values['field_so_manual_adjustment'.$clk];
     $editNode->field_so_man_adj_description['und'][0]['value'] = $values['field_so_man_adj_description'.$clk];
-    //Y-m-d H:i:s
     $editNode->field_so_start_date['und'][0]['value'] = date('Y-m-d H:i:s',strtotime($values['start_date'.$clk]) + 18000);
     $editNode->field_so_end_date['und'][0]['value'] = date('Y-m-d H:i:s',strtotime($values['end_date'.$clk]) + 18000);
-    // WHOLE BUNCH OF OTHER STUFF HAS TO GO HERE TO TRANSFER NEW DATA IN
     node_save($editNode);
     dpm($editNode);
 }
 function umma_service_order_remove_submit($form_id, &$form_state){
-    //dpm($form_state);
     node_delete($form_state['clicked_button']['#array_parents'][0]);
 }
 function umma_service_order_addchecked_submit($form_id, &$form_state){
@@ -844,95 +689,24 @@ function umma_service_order_addchecked_submit($form_id, &$form_state){
     dpm($form_state);
     if(!isset($form_state['alreadyArray'])){$form_state['alreadyArray'] = array();}
     if(strpos($form_state['triggering_element']['#value'], 'dd Checked Items To') != false){
-            dpm('WHAAAAAT');
-            
             $form['adding']['submit']['#access'] = false;
-            $form['adding']['submit2']['#access'] = true;
-            //$form['adding']['submit2']['#prefix'] = $form['adding']['submit2']['#weight'];
-            
+            $form['adding']['submit2']['#access'] = true;     
             $args = $form_state['build_info']['args'][0][0];
-             foreach($form_state['values'] as $key => $value){
-
-                 //if(!is_array($value)){continue;}
-                 dpm($key);
-                 //if(substr($key, strlen($key)-3) != 'pt2'){continue;}
-                 if(ctype_lower(substr($key, 0,1))){continue;}
-                 dpm("HOAHOA");
-                // dpm(substr($key,0,strlen($key)-3));
-                // $itemNode = node_load(substr($key,0,strlen($key)-3)); 
-                 dpm($value);
-                 
-                foreach($value as $k=> $v){ 
+            foreach($form_state['values'] as $key => $value){                 
+                 if(ctype_lower(substr($key, 0,1))){continue;} 
+                 foreach($value as $k=> $v){ 
                      if($v == 0){continue;}
-                   
-                     
-                     $itemNode = node_load(substr($v,0)); 
-                     /*
-                     array_push( $form_state['alreadyArray'], $v);
-                     dpm( $form_state['alreadyArray']);
-                     dpm($v);
-                     $newNode = new stdClass();
-                     $newNode->type = 'item_inside_order';
-                     node_object_prepare($newNode);
-                     $newNode->language = 'und';
-                     $newNode->field_io_sched_ent['und'][0]['target_id'] = $args->nid;
-                     $newNode->field_so_type['und'][0]['value'] = $itemNode->field_so_type['und'][0]['value'];
-                     $newNode->field_io_item['und'][0]['target_id'] = $itemNode->nid;
-                     //$newNode->field_location['und'][0]['value'] = $value;
-                     if(isset($args->field_pg_pricing_period)){
-                                $newNode->field_pg_pricing_period = $args->field_pg_pricing_period;
-                                $newNode->field_pg_client_type = $args->field_pg_client_type;
-                            } 
-                    if(isset($args->field_ev_pricing_period)){
-                        $newNode->field_pg_pricing_period = $args->field_ev_pricing_period;
-                        $newNode->field_pg_client_type = $args->field_ev_client_type;
-                    } 
-                    if(isset($args->field_ei_pricing_period)){
-                        $node = node_load($args->field_ei_event_id['und'][0]['target_id']);
-                        $newNode->field_pg_pricing_period = $node->field_ev_pricing_period;
-                        $newNode->field_pg_client_type = $node->field_pg_client_type;
-                    }  
-                    node_save($newNode);   
-                      * */
-                     $form_state['checkmarked'][] = $v; 
-                    //$form_state['checkmarked'][] = $itemNode->nid;
-                    //$form_state['checkmarked'][] = $newNode->nid;
-                    //dpm('|||--' .$newNode->title);
-                }         
-                        
-             }
-            /*
-            foreach($form as $key => $value){
-                if($form[$key]['#type'] == 'fieldset'){
-                    $form[$key]['#access'] = false; 
-                }
-            }
-             * */
-            //dpm($form); 
-            $form_state['adding']['#access'] = true;
-             
-           $form_state['rebuild'] = true;
+                     $itemNode = node_load(substr($v,0));                    
+                     $form_state['checkmarked'][] = $v;                    
+                }                                
+             }            
+            $form_state['adding']['#access'] = true;             
+            $form_state['rebuild'] = true;
         }
-    //node_delete($form_state['clicked_button']['#array_parents'][0]);
 }
-function umma_service_order_date_popup_pre_validate_alter(&$element, &$form_state, &$input){
-   // dpm($element);
-   // dpm($input);
-   // $element['#needs_validation'] = false;
-   // unset($element['#element_validate']);
-   // dpm($element);
-}
+
 function umma_service_order_parts_validate($form, &$form_state){
-    // 'm/d/Y - H:i'
-    //$form_state['input']['start_date']['date'] = date('m/d/Y',strtotime($form_state['input']['start_date']['date']));
-    //$form_state['input']['start_date']['time'] = date('H:i',strtotime($form_state['input']['start_date']['time']));
-    //$form_state['input']['end_date']['date']   = date('m/d/Y',strtotime($form_state['input']['end_date']['date']));
-    //$form_state['input']['end_date']['time']   = date('H:i',strtotime($form_state['input']['end_date']['time']));
-    foreach($form_state['input'] as $k => $i){
-        //dpm($k);
-    }
-   // dpm($form_state);
-    //dpm($form);
+    // Pending
 }
 
 function umma_service_order_parts_submit($form_id, &$form_state){
@@ -1004,106 +778,9 @@ function umma_service_order_parts_submit($form_id, &$form_state){
          $soNode = node_load($newSo[$newNode->field_so_type['und'][0]['value']]);
          $soNode->field_so_added_item['und'][]['target_id'] = $newNode->nid;
          node_save($soNode);
-     }
-         
-     
-     
-    /*
-     $args = $form_state['build_info']['args'][0][0];
-     foreach($form_state['values'] as $key => $value){
-         
-         //if(!is_array($value)){continue;}
-        // dpm($key);
-         if(substr($key, strlen($key)-3) != 'pt2'){continue;}
-         //dpm("HOAHOA");
-        // dpm(substr($key,0,strlen($key)-3));
-         $itemNode = node_load(substr($key,0,strlen($key)-3)); 
-         $newNode = new stdClass();
-         $newNode->type = 'item_inside_order';
-         node_object_prepare($newNode);
-         $newNode->language = 'und';
-         $newNode->field_io_sched_ent['und'][0]['target_id'] = $args->nid;
-         $newNode->field_so_type['und'][0]['value'] = $itemNode->field_so_type['und'][0]['value'];
-         $newNode->field_io_item['und'][0]['target_id'] = $itemNode->nid;
-         //$newNode->field_location['und'][0]['value'] = $value;
-         if(isset($args->field_pg_pricing_period)){
-                    $newNode->field_so_pricing_period = $args->field_pg_pricing_period;
-                    $newNode->field_pg_client_type = $args->field_pg_client_type;
-                } 
-                if(isset($args->field_ev_pricing_period)){
-                    $newNode->field_so_pricing_period = $args->field_ev_pricing_period;
-                    $newNode->field_pg_client_type = $args->field_ev_client_type;
-                } 
-                if(isset($args->field_ei_pricing_period)){
-                    $newNode->field_so_pricing_period = $args->field_ei_pricing_period;
-                    $newNode->field_pg_client_type = $args->field_ei_client_type;
-                } 
-         node_save($newNode);          
-     }
-   
-     */
-     /*
-         foreach($value as $v){
-             if($v != null){
-                $itemNode = node_load($v); 
-                if($itemNode->type != 'service_order_item'){continue;}
-                $newNode = new stdClass();
-                $newNode->type = 'service_order';
-                node_object_prepare($newNode);
-                $newNode->language = 'und';
-                $newNode->field_so_related_content['und'][0]['target_id'] = $args->nid;
-                $newNode->field_so_type['und'][0]['value'] = $itemNode->field_so_type['und'][0]['value'];
-                $newNode->field_so_item['und'][0]['target_id'] = $itemNode->nid;
-                
-                if(isset($args->field_pg_pricing_period)){
-                    $newNode->field_so_pricing_period = $args->field_pg_pricing_period;
-                    $newNode->field_pg_client_type = $args->field_pg_client_type;
-                } 
-                if(isset($args->field_ev_pricing_period)){
-                    $newNode->field_so_pricing_period = $args->field_ev_pricing_period;
-                    $newNode->field_pg_client_type = $args->field_ev_client_type;
-                } 
-                if(isset($args->field_ei_pricing_period)){
-                    $newNode->field_so_pricing_period = $args->field_ei_pricing_period;
-                    $newNode->field_pg_client_type = $args->field_ei_client_type;
-                } 
-                node_save($newNode);
-                  
-             }
-         }
-          * */
+     }   
 }
-/*
- * if($form_id == 'program_group_node_form') { 
-        $form['field_pg_internal_start_date']['#access'] = false;
-        $form['field_pg_internal_end_date']['#access'] = false;
-        // Add an after_build function to process when everything's complete.
-      //dsm($form_id);
-       // dsm($form);
- *  // Add an after_build function to process when everything's complete.
-      //dsm($form_id);
-        $form['#after_build'][] = 'umma_program_group_after_build';
-        $item_options = array();
-         $opts = db_query('SELECT nid, title FROM {node} WHERE type = :type', array(':type' => 'service_order_item'));
-         $data = $opts->fetchAll();
-         dpm($data);
-         foreach($data as $d){
-               $item_options[$d->nid] = $d->title;
-           }
-           //dpm($item_options);
-         $form['field_itemlist'] = array(
-             '#type' => 'checkboxes',
-            '#options' => $item_options,
-            '#title' => t('Select Items')); 
-         
-          $form['#group_children']['field_itemlist'] = 'group_pg_order_items';
-       // $form['field_add_remove_items']['und']['#options'] = $item_options;
-        //$form_state['field']['field_add_remove_items']['und']['field']['settings']['allowed_values'] = $item_options;
-        dpm($form);
-        dpm($form_state);
-    }
-}    
- */
+
 
 
 /**
